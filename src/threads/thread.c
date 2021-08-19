@@ -28,6 +28,8 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+static struct list sleeping_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -60,6 +62,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 bool thread_mlfqs;
 
 static void kernel_thread (thread_func *, void *aux);
+// static void awake_thread (struct thread *);
 
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
@@ -92,6 +95,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -477,10 +481,12 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->sleeping_time = 0;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
+  list_push_back (&sleeping_list, &t->sleepelem);
   intr_set_level (old_level);
 }
 
@@ -555,6 +561,48 @@ thread_schedule_tail (struct thread *prev)
       ASSERT (prev != cur);
       palloc_free_page (prev);
     }
+}
+
+void
+thread_sleep(struct thread *t)
+{
+  // ASSERT(is_thread(t));
+  // ASSERT(t->status == THREAD_BLOCKED);
+
+  enum intr_level old_level;
+  
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+  if (t != idle_thread) 
+    list_push_back (&sleeping_list, &t->elem);
+
+  intr_set_level (old_level);
+}
+
+// void
+// try_awake_threads(void)
+// {
+//   struct list_elem *e;
+
+//   ASSERT (intr_get_level () == INTR_OFF);
+
+//   for (e = list_begin (&sleeping_list); e != list_end (&sleeping_list);
+//        e = list_next (e))
+//     {
+//       struct thread *t = list_entry (e, struct thread, sleepelem);
+//       awake_thread (t, aux);
+//     }
+// }
+
+void
+awake_thread (struct thread *t, void *aux UNUSED) 
+{
+  t->sleeping_time--;
+
+  if (t->sleeping_time == 0) {
+    thread_unblock(t);
+  }
 }
 
 /* Schedules a new process.  At entry, interrupts must be off and
